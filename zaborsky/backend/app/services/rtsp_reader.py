@@ -3,13 +3,12 @@ import os
 import re
 import time
 import uuid
+import urllib.request
 from dataclasses import dataclass
-from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlunparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 import cv2
 import numpy as np
-import requests
-from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 from app.config import settings
 from app.database import SessionLocal
@@ -18,10 +17,7 @@ from app.services.runtime_config import cfg, get_dict
 
 logger = logging.getLogger(__name__)
 
-HTTP_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; ZaborskyANPR/1.0)",
-    "Connection": "keep-alive",
-}
+BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 
 def pick_camera_source(http: str, video_file: str) -> str:
@@ -52,49 +48,61 @@ def _parse_credentials(url: str) -> tuple[str | None, str]:
     return unquote(parsed.username), unquote(parsed.password or "")
 
 
-def _strip_credentials(url: str) -> str:
-    parsed = urlparse(url)
-    host = parsed.hostname or ""
-    if parsed.port:
-        host = f"{host}:{parsed.port}"
-    return urlunparse((parsed.scheme, host, parsed.path, parsed.params, parsed.query, parsed.fragment))
-
-
-def _with_subtype(url: str, subtype: int) -> str:
-    parsed = urlparse(url)
-    qs = parse_qs(parsed.query, keep_blank_values=True)
-    qs["subtype"] = [str(subtype)]
-    if "channel" not in qs:
-        qs["channel"] = ["1"]
-    query = urlencode({k: v[0] for k, v in qs.items()})
-    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, query, parsed.fragment))
-
-
-def _to_snapshot_url(url: str) -> str:
-    parsed = urlparse(url)
-    path = parsed.path.replace("/cgi-bin/mjpg/video.cgi", "/cgi-bin/snapshot.cgi")
-    if path == parsed.path:
-        path = "/cgi-bin/snapshot.cgi"
-    return urlunparse((parsed.scheme, parsed.netloc, path, parsed.params, parsed.query, parsed.fragment))
+def _snapshot_url(url: str) -> str:
+    if "snapshot.cgi" in url.lower():
+        return url
+    return url.replace("/cgi-bin/mjpg/video.cgi", "/cgi-bin/snapshot.cgi").replace(
+        "mjpg/video.cgi", "snapshot.cgi"
+    )
 
 
 def _decode_jpeg(data: bytes) -> np.ndarray | None:
     if not data:
         return None
-    frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
-    return frame
+    return cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
 
 
-def _extract_jpeg(buffer: bytes) -> tuple[np.ndarray | None, bytes]:
-    start = buffer.find(b"\xff\xd8")
-    end = buffer.find(b"\xff\xd9")
-    if start == -1 or end == -1 or end <= start:
-        if len(buffer) > 2_000_000:
-            return None, buffer[-256_000:]
-        return None, buffer
-    jpg = buffer[start : end + 2]
-    rest = buffer[end + 2 :]
-    return _decode_jpeg(jpg), rest
+def _urllib_opener(url: str) -> urllib.request.OpenerDirector:
+    parsed = urlparse(url)
+    user, password = _parse_credentials(url)
+    host = parsed.hostname or ""
+    port = parsed.port or 80
+    base = f"{parsed.scheme}://{host}:{port}/"
+
+    mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+    if user:
+        mgr.add_password(None, base, user, password)
+        mgr.add_password(None, f"{parsed.scheme}://{host}/", user, password)
+
+    handlers = [
+        urllib.request.HTTPDigestAuthHandler(mgr),
+        urllib.request.HTTPBasicAuthHandler(mgr),
+    ]
+    return urllib.request.build_opener(*handlers)
+
+
+def _urllib_fetch_jpeg(url: str, timeout: int = 15) -> np.ndarray | None:
+    headers = {"User-Agent": BROWSER_UA}
+
+    # 1) Как браузер: логин/пароль прямо в URL
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            frame = _decode_jpeg(resp.read())
+            if frame is not None:
+                return frame
+    except Exception as exc:
+        logger.debug("urllib plain %s: %s", mask_stream_url(url), exc)
+
+    # 2) Digest/Basic auth (если камера требует challenge)
+    try:
+        opener = _urllib_opener(url)
+        req = urllib.request.Request(url, headers=headers)
+        with opener.open(req, timeout=timeout) as resp:
+            return _decode_jpeg(resp.read())
+    except Exception as exc:
+        logger.debug("urllib auth %s: %s", mask_stream_url(url), exc)
+        return None
 
 
 @dataclass
@@ -104,174 +112,95 @@ class FrameSource:
     roi: str | None = None
 
 
-class _DahuaHttpReader:
-    """HTTP MJPEG / snapshot для Dahua (digest + basic, несколько URL)."""
+class _HttpStream:
+    """
+    Читает HTTP-камеру так же, как браузер:
+    1) OpenCV/ffmpeg по полному URL (MJPEG)
+    2) urllib snapshot (один кадр, digest auth как в браузере)
+    """
 
     def __init__(self, source: str):
-        self.source = source
-        self._user, self._password = _parse_credentials(source)
-        self._session = requests.Session()
-        self._session.headers.update(HTTP_HEADERS)
-        self._urls = self._build_url_candidates(source)
-        self._url_index = 0
-        self._mode = "mjpeg"
-        self._resp: requests.Response | None = None
-        self._chunk_iter = None
-        self._buffer = b""
+        self.source = source.strip()
+        self._snapshot = _snapshot_url(self.source)
+        self._cap: cv2.VideoCapture | None = None
+        self._mode = "auto"
         self._failures = 0
         self.last_error: str | None = None
+        logger.info("HTTP camera init: %s", mask_stream_url(self.source))
 
-    def _build_url_candidates(self, source: str) -> list[str]:
-        urls: list[str] = []
-        for u in (source, _with_subtype(source, 1), _with_subtype(source, 0)):
-            if u not in urls:
-                urls.append(u)
-        snap = _to_snapshot_url(source)
-        if snap not in urls:
-            urls.append(snap)
-        return urls
+    def _open_opencv(self) -> bool:
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
 
-    def _current_url(self) -> str:
-        return self._urls[self._url_index % len(self._urls)]
-
-    def _is_snapshot_url(self, url: str) -> bool:
-        return "snapshot.cgi" in url.lower()
-
-    def _request(self, url: str, *, stream: bool) -> requests.Response:
-        stripped = _strip_credentials(url)
-        auth_user, auth_pass = _parse_credentials(url)
-        if not auth_user and self._user:
-            auth_user, auth_pass = self._user, self._password
-
-        attempts: list[tuple[str, dict]] = [
-            ("full_url", {"url": url, "auth": None}),
-            ("digest", {"url": stripped, "auth": HTTPDigestAuth(auth_user, auth_pass) if auth_user else None}),
-            ("basic", {"url": stripped, "auth": HTTPBasicAuth(auth_user, auth_pass) if auth_user else None}),
-            ("full_digest", {"url": url, "auth": HTTPDigestAuth(auth_user, auth_pass) if auth_user else None}),
-        ]
-        last_exc: Exception | None = None
-        for name, kw in attempts:
-            if kw["auth"] is None and name != "full_url":
-                continue
-            try:
-                resp = self._session.get(
-                    kw["url"],
-                    auth=kw["auth"],
-                    stream=stream,
-                    timeout=(10, 30),
-                    allow_redirects=True,
-                )
-                if resp.status_code == 401:
-                    continue
-                resp.raise_for_status()
-                logger.debug("HTTP camera connected via %s: %s", name, mask_stream_url(kw["url"]))
-                return resp
-            except requests.RequestException as exc:
-                last_exc = exc
-                continue
-        raise last_exc or requests.RequestException("all auth methods failed")
-
-    def _connect_mjpeg(self) -> bool:
-        self.close_stream()
-        url = self._current_url()
-        if self._is_snapshot_url(url):
-            self._mode = "snapshot"
-            return True
-        try:
-            self._resp = self._request(url, stream=True)
-            ct = self._resp.headers.get("Content-Type", "")
-            if "image/jpeg" in ct and "multipart" not in ct:
-                self._mode = "snapshot"
-            else:
-                self._mode = "mjpeg"
-            self._buffer = b""
-            self._chunk_iter = self._resp.iter_content(chunk_size=16384)
+        os.environ.setdefault(
+            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+            f"user_agent;{BROWSER_UA}|stimeout;15000000",
+        )
+        cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if cap.isOpened():
+            self._cap = cap
+            self._mode = "opencv"
             self.last_error = None
+            logger.info("HTTP camera: OpenCV/ffmpeg connected")
             return True
-        except requests.RequestException as exc:
-            self.last_error = str(exc)
-            return False
 
-    def _rotate_url(self):
-        self._url_index += 1
-        self._failures = 0
-        url = self._current_url()
-        self._mode = "snapshot" if self._is_snapshot_url(url) else "mjpeg"
-        logger.info("HTTP camera: trying URL %s", mask_stream_url(url))
+        cap.release()
+        self.last_error = "opencv cannot open stream"
+        return False
 
-    def _read_snapshot_once(self) -> np.ndarray | None:
-        url = self._current_url()
-        try:
-            resp = self._request(url, stream=False)
-            frame = _decode_jpeg(resp.content)
-            if frame is None:
-                self.last_error = "snapshot decode failed"
+    def _read_opencv(self) -> np.ndarray | None:
+        if self._cap is None or not self._cap.isOpened():
+            if not self._open_opencv():
+                return None
+        assert self._cap is not None
+        ok, frame = self._cap.read()
+        if ok and frame is not None:
             return frame
-        except requests.RequestException as exc:
-            self.last_error = str(exc)
-            return None
+        self.last_error = "opencv frame read failed"
+        self._open_opencv()
+        return None
 
-    def _read_mjpeg_frame(self) -> np.ndarray | None:
-        if self._resp is None or self._chunk_iter is None:
-            if not self._connect_mjpeg():
-                return None
-
-        for _ in range(120):
-            try:
-                chunk = next(self._chunk_iter)
-            except StopIteration:
-                chunk = b""
-            except requests.RequestException as exc:
-                self.last_error = str(exc)
-                self.close_stream()
-                return None
-
-            if not chunk:
-                if not self._connect_mjpeg():
-                    return None
-                continue
-
-            self._buffer += chunk
-            frame, self._buffer = _extract_jpeg(self._buffer)
+    def _read_snapshot(self) -> np.ndarray | None:
+        for url in (self._snapshot, self.source):
+            frame = _urllib_fetch_jpeg(url)
             if frame is not None:
+                self.last_error = None
                 return frame
-
-        self.last_error = "mjpeg: no jpeg frame in stream"
+        self.last_error = "snapshot fetch failed"
         return None
 
     def read_frame(self) -> np.ndarray | None:
-        if self._mode == "snapshot" or self._is_snapshot_url(self._current_url()):
-            frame = self._read_snapshot_once()
-        else:
-            frame = self._read_mjpeg_frame()
-
+        # Snapshot через urllib (digest как в браузере) — самый надёжный способ
+        frame = self._read_snapshot()
         if frame is not None:
             self._failures = 0
-            self.last_error = None
             return frame
 
+        # MJPEG поток через ffmpeg/OpenCV — как вкладка в браузере
+        if self._mode != "snapshot_only":
+            frame = self._read_opencv()
+            if frame is not None:
+                self._failures = 0
+                return frame
+
         self._failures += 1
-        if self._failures >= 3:
-            self._rotate_url()
-            self.close_stream()
-            if not self._connect_mjpeg() and self._mode == "mjpeg":
-                pass
+        if self._failures >= 5 and self._mode != "snapshot_only":
+            logger.warning("HTTP camera: OpenCV failed, only snapshot mode")
+            self._mode = "snapshot_only"
+            if self._cap:
+                self._cap.release()
+                self._cap = None
+
         return None
 
-    def close_stream(self):
-        self._chunk_iter = None
-        if self._resp is not None:
-            self._resp.close()
-            self._resp = None
-        self._buffer = b""
-
     def close(self):
-        self.close_stream()
-        self._session.close()
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
 
 
-# Совместимость со старыми импортами
-RTSPReader = None  # set below after class def
 mask_rtsp_url = mask_stream_url
 
 
@@ -281,15 +210,14 @@ class CameraReader:
     def __init__(self, camera_id: int, source: str):
         self.camera_id = camera_id
         self.source = source
-        self._http: _DahuaHttpReader | None = None
+        self._http: _HttpStream | None = None
         self._cap: cv2.VideoCapture | None = None
         self._last_read_time = 0.0
         self.is_online = False
         self.last_error: str | None = None
 
         if source.startswith("http"):
-            self._http = _DahuaHttpReader(source)
-            logger.info("Camera %s: HTTP mode %s", camera_id, mask_stream_url(source))
+            self._http = _HttpStream(source)
         else:
             self._cap = cv2.VideoCapture(source)
 
@@ -315,14 +243,13 @@ class CameraReader:
 
         if frame is None:
             self.is_online = False
-            if self.last_error:
-                logger.warning(
-                    "Camera %s: %s — %s",
-                    self.camera_id,
-                    mask_stream_url(self.source),
-                    self.last_error,
-                )
-            time.sleep(1)
+            logger.warning(
+                "Camera %s offline: %s — %s",
+                self.camera_id,
+                mask_stream_url(self.source),
+                self.last_error or "unknown",
+            )
+            time.sleep(0.5)
             return None
 
         self._last_read_time = now

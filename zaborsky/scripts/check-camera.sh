@@ -59,13 +59,19 @@ from app.services.rtsp_reader import CameraReader, mask_stream_url
 
 url = sys.argv[1]
 print(f"    URL: {mask_stream_url(url)}")
+
 reader = CameraReader(0, url)
-frame = reader.read_raw()
+ok = False
+for i in range(5):
+    frame = reader.read_raw()
+    if frame is not None:
+        print(f"    OK: кадр {frame.shape[1]}x{frame.shape[0]} (попытка {i + 1})")
+        ok = True
+        break
 reader.close()
-if frame is None:
-    print("    FAIL: кадр не получен")
+if not ok:
+    print(f"    FAIL: {reader.last_error}")
     sys.exit(1)
-print(f"    OK: кадр {frame.shape[1]}x{frame.shape[0]}")
 PY
 
 echo ""
