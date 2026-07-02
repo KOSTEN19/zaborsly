@@ -79,8 +79,6 @@ class SettingsOut(BaseModel):
     single_camera_mode: bool
     camera_1_name: str
     camera_2_name: str
-    camera_1_rtsp: str
-    camera_2_rtsp: str
     camera_1_http: str = ""
     camera_2_http: str = ""
     camera_1_roi: str = ""
@@ -106,8 +104,6 @@ class SettingsOut(BaseModel):
 class SettingsUpdate(BaseModel):
     camera_1_name: str
     camera_2_name: str = ""
-    camera_1_rtsp: str = ""
-    camera_2_rtsp: str = ""
     camera_1_http: str = ""
     camera_2_http: str = ""
     camera_1_roi: str = ""

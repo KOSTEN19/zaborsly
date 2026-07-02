@@ -119,8 +119,6 @@ export interface SettingsData {
   single_camera_mode: boolean;
   camera_1_name: string;
   camera_2_name: string;
-  camera_1_rtsp: string;
-  camera_2_rtsp: string;
   camera_1_http: string;
   camera_2_http: string;
   camera_1_roi: string;

@@ -204,16 +204,14 @@ def wait_for_camera_sources() -> list:
         sources = get_camera_sources()
         if sources:
             for src in sources:
-                kind = "HTTP" if src.source.startswith("http") else "RTSP/file"
                 logger.info(
-                    "Camera source id=%s (%s): %s",
+                    "Camera source id=%s (HTTP): %s",
                     src.camera_id,
-                    kind,
                     mask_stream_url(src.source),
                 )
             return sources
         logger.error(
-            "Камера не настроена. Задайте CAMERA_1_HTTP, CAMERA_1_RTSP или VIDEO_FILE_1, "
+            "Камера не настроена. Задайте CAMERA_1_HTTP в .env или в админке → Настройки, "
             "затем: docker compose restart worker"
         )
         time.sleep(30)

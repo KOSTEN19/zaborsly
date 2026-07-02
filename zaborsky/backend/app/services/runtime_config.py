@@ -9,14 +9,8 @@ from app.models import AppConfig, Camera
 
 logger = logging.getLogger(__name__)
 
-
-def _active_camera_url(data: dict, n: int) -> str:
-    return (data.get(f"camera_{n}_http") or data.get(f"camera_{n}_rtsp") or "").strip()
-
 ENV_FALLBACK_KEYS = frozenset(
     {
-        "camera_1_rtsp",
-        "camera_2_rtsp",
         "camera_1_http",
         "camera_2_http",
         "camera_1_name",
@@ -25,8 +19,6 @@ ENV_FALLBACK_KEYS = frozenset(
 )
 
 EDITABLE_KEYS = (
-    "camera_1_rtsp",
-    "camera_2_rtsp",
     "camera_1_http",
     "camera_2_http",
     "camera_1_name",
@@ -55,7 +47,17 @@ _cache: dict | None = None
 
 
 def _env_defaults() -> dict:
-    return {key: getattr(env, key) for key in EDITABLE_KEYS}
+    return {key: getattr(env, key, "") for key in EDITABLE_KEYS}
+
+
+def _http_url(data: dict, n: int) -> str:
+    http = (data.get(f"camera_{n}_http") or "").strip()
+    if http:
+        return http
+    legacy = (data.get(f"camera_{n}_rtsp") or "").strip()
+    if legacy.startswith("http"):
+        return legacy
+    return ""
 
 
 def _load_row(db: Session) -> AppConfig | None:
@@ -72,11 +74,17 @@ def reload(db: Session | None = None) -> dict:
         row = _load_row(db)
         if row and row.data:
             for key, value in row.data.items():
-                if key not in EDITABLE_KEYS:
+                if key not in EDITABLE_KEYS and key not in ("camera_1_rtsp", "camera_2_rtsp"):
                     continue
                 if key in ENV_FALLBACK_KEYS and value in (None, ""):
                     continue
-                merged[key] = value
+                if key in EDITABLE_KEYS:
+                    merged[key] = value
+            for n in (1, 2):
+                if not merged.get(f"camera_{n}_http"):
+                    legacy = (row.data.get(f"camera_{n}_rtsp") or "").strip()
+                    if legacy.startswith("http"):
+                        merged[f"camera_{n}_http"] = legacy
     finally:
         if own_session:
             db.close()
@@ -92,7 +100,7 @@ def get_dict() -> dict:
 
 def single_camera_mode(data: dict | None = None) -> bool:
     d = data or get_dict()
-    cam2 = d.get("camera_2_http") or d.get("camera_2_rtsp") or env.video_file_2
+    cam2 = _http_url(d, 2) or env.video_file_2
     return not bool(cam2)
 
 
@@ -101,8 +109,6 @@ def to_settings_out() -> dict:
     return {
         "single_camera_mode": single_camera_mode(d),
         **{k: d.get(k, getattr(env, k, "")) for k in EDITABLE_KEYS},
-        "camera_1_rtsp": d.get("camera_1_rtsp") or env.video_file_1 or "",
-        "camera_2_rtsp": d.get("camera_2_rtsp") or env.video_file_2 or "",
     }
 
 
@@ -135,7 +141,7 @@ def _sync_cameras(db: Session, data: dict):
         cam1 = Camera(name=data["camera_1_name"], position=1)
         db.add(cam1)
     cam1.name = data["camera_1_name"]
-    cam1.rtsp_url = _active_camera_url(data, 1)
+    cam1.rtsp_url = _http_url(data, 1)
     cam1.is_active = True
 
     cam2 = db.query(Camera).filter(Camera.position == 2).first()
@@ -148,7 +154,7 @@ def _sync_cameras(db: Session, data: dict):
             cam2 = Camera(name=data["camera_2_name"], position=2)
             db.add(cam2)
         cam2.name = data["camera_2_name"]
-        cam2.rtsp_url = _active_camera_url(data, 2)
+        cam2.rtsp_url = _http_url(data, 2)
         cam2.is_active = True
 
 
@@ -177,10 +183,12 @@ class RuntimeConfig:
     def __getattr__(self, name: str):
         if name in ("single_camera_mode", "camera_2_configured"):
             return getattr(self, name)()
+        if name in ("camera_1_rtsp", "camera_2_rtsp"):
+            return ""
         d = get_dict()
         if name in d:
             return d[name]
-        return getattr(env, name)
+        return getattr(env, name, "")
 
     def single_camera_mode(self) -> bool:
         return single_camera_mode()

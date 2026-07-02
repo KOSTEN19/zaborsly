@@ -27,8 +27,6 @@ export default function Settings() {
         ...rest,
         camera_1_http: rest.camera_1_http ?? "",
         camera_2_http: rest.camera_2_http ?? "",
-        camera_1_rtsp: rest.camera_1_rtsp ?? "",
-        camera_2_rtsp: rest.camera_2_rtsp ?? "",
       });
     });
   }, []);
@@ -49,8 +47,7 @@ export default function Settings() {
       const { single_camera_mode: _, ...rest } = updated;
       setForm(rest);
       setMessage(
-        "Настройки сохранены. Worker подхватит URL камеры (HTTP/RTSP) за ~10 сек. " +
-          "При смене .env выполните: docker compose restart worker"
+        "Настройки сохранены. Worker подхватит HTTP URL за ~10 сек."
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка сохранения");
@@ -175,7 +172,7 @@ export default function Settings() {
         <div className="card-body gap-4">
           <h2 className="card-title text-lg">Камера</h2>
           <p className="text-sm text-base-content/60">
-            Режим: {singleCamera ? "1 камера" : "2 камеры"}. HTTP имеет приоритет над RTSP.
+            Режим: {singleCamera ? "1 камера" : "2 камеры"}. Подключение только по HTTP.
           </p>
 
           <label className="form-control">
@@ -188,21 +185,12 @@ export default function Settings() {
             />
           </label>
           <label className="form-control">
-            <span className="label-text">HTTP URL (MJPEG / snapshot)</span>
+            <span className="label-text">HTTP URL камеры (Dahua MJPEG)</span>
             <input
               className="input input-bordered input-sm font-mono text-xs"
               value={form.camera_1_http}
               onChange={(e) => set("camera_1_http", e.target.value)}
-              placeholder="http://user:pass@192.168.1.101/cgi-bin/mjpg/video.cgi?channel=1&subtype=1"
-            />
-          </label>
-          <label className="form-control">
-            <span className="label-text">RTSP URL</span>
-            <input
-              className="input input-bordered input-sm font-mono text-xs"
-              value={form.camera_1_rtsp}
-              onChange={(e) => set("camera_1_rtsp", e.target.value)}
-              placeholder="rtsp://user:pass@192.168.1.101:554/stream1"
+              placeholder="http://user:pass@172.16.0.32/cgi-bin/mjpg/video.cgi?channel=1"
             />
           </label>
           <label className="form-control">
@@ -225,19 +213,11 @@ export default function Settings() {
             />
           </label>
           <label className="form-control">
-            <span className="label-text">HTTP URL (MJPEG / snapshot)</span>
+            <span className="label-text">HTTP URL</span>
             <input
               className="input input-bordered input-sm font-mono text-xs"
               value={form.camera_2_http}
               onChange={(e) => set("camera_2_http", e.target.value)}
-            />
-          </label>
-          <label className="form-control">
-            <span className="label-text">RTSP URL</span>
-            <input
-              className="input input-bordered input-sm font-mono text-xs"
-              value={form.camera_2_rtsp}
-              onChange={(e) => set("camera_2_rtsp", e.target.value)}
             />
           </label>
 

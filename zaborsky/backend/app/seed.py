@@ -25,11 +25,19 @@ def seed():
         ensure_row(db)
         reload(db)
         data = get_dict()
-        cam1_url = data.get("camera_1_http") or data.get("camera_1_rtsp") or settings.video_file_1
+        cam1_url = data.get("camera_1_http") or settings.video_file_1
+        if not cam1_url:
+            legacy = (data.get("camera_1_rtsp") or "").strip()
+            if legacy.startswith("http"):
+                cam1_url = legacy
         cameras = [
             (1, data["camera_1_name"], cam1_url, True),
         ]
-        cam2_url = data.get("camera_2_http") or data.get("camera_2_rtsp")
+        cam2_url = data.get("camera_2_http") or ""
+        if not cam2_url:
+            legacy2 = (data.get("camera_2_rtsp") or "").strip()
+            if legacy2.startswith("http"):
+                cam2_url = legacy2
         if cam2_url:
             cameras.append((2, data["camera_2_name"], cam2_url, True))
 
