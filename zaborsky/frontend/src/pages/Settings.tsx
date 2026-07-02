@@ -10,12 +10,26 @@ export default function Settings() {
 
   if (!data) return <span className="loading loading-lg mx-auto block mt-20" />;
 
-  const rows = [
-    ["Камера 1", data.camera_1_name],
-    ["RTSP камера 1", data.camera_1_rtsp],
-    ["Камера 2", data.camera_2_name],
-    ["RTSP камера 2", data.camera_2_rtsp],
-    ["Cam1→Cam2 =", data.cam1_to_cam2_direction === "entry" ? "Въезд" : "Выезд"],
+  const rows: [string, string][] = [
+    ["Режим", data.single_camera_mode ? "1 камера" : "2 камеры"],
+    ["Камера", data.camera_1_name],
+    ["RTSP", data.camera_1_rtsp],
+  ];
+
+  if (data.single_camera_mode) {
+    rows.push([
+      "Въезд / выезд",
+      "Авто: нет открытой сессии → въезд, есть на территории → выезд",
+    ]);
+  } else {
+    rows.push(
+      ["Камера 2", data.camera_2_name],
+      ["RTSP камера 2", data.camera_2_rtsp],
+      ["Cam1→Cam2 =", data.cam1_to_cam2_direction === "entry" ? "Въезд" : "Выезд"],
+    );
+  }
+
+  rows.push(
     ["— Качество —", ""],
     ["Мин. уверенность (кадр)", String(data.min_confidence)],
     ["Мин. уверенность (подтвержд.)", String(data.min_confirmed_confidence)],
@@ -29,7 +43,7 @@ export default function Settings() {
     ["Порог движения", String(data.motion_min_area_ratio)],
     ["Потоки PyTorch", String(data.torch_num_threads)],
     ["Cooldown (сек)", String(data.detection_cooldown_sec)],
-  ];
+  );
 
   return (
     <div className="space-y-4">

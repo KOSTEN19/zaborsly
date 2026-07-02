@@ -32,37 +32,62 @@ def update_camera_status(camera_id: int, online: bool):
         db.close()
 
 
-def handle_detection(camera_id: int, plate: str, confidence: float, photo_path: str, tracker: DirectionTracker):
+def handle_detection(
+    camera_id: int,
+    plate: str,
+    confidence: float,
+    photo_path: str,
+    tracker: DirectionTracker,
+    *,
+    single_camera: bool,
+):
     now = utcnow()
-    direction, pair = tracker.process(
-        plate=plate,
-        camera_id=camera_id,
-        detected_at=now,
-        photo_path=photo_path,
-        confidence=confidence,
-    )
 
     db = SessionLocal()
     try:
-        session_manager.record_detection(
-            db=db,
-            camera_id=camera_id,
-            plate=plate,
-            confidence=confidence,
-            direction=direction,
-            photo_path=photo_path,
-            detected_at=now,
-        )
-
-        if pair is not None and direction.value != "unknown":
-            session_manager.handle_direction_pair(db, direction, pair.first, pair.second)
-            logger.info(
-                "Direction %s for plate %s (cam %s -> cam %s)",
-                direction.value,
-                plate,
-                pair.first.camera_id,
-                pair.second.camera_id,
+        if single_camera:
+            if not tracker.try_acquire(plate, camera_id, now):
+                return
+            detection = session_manager.handle_single_camera_pass(
+                db=db,
+                camera_id=camera_id,
+                plate=plate,
+                confidence=confidence,
+                photo_path=photo_path,
+                detected_at=now,
             )
+            logger.info(
+                "Single-cam %s plate %s → %s",
+                camera_id,
+                plate,
+                detection.direction.value,
+            )
+        else:
+            direction, pair = tracker.process(
+                plate=plate,
+                camera_id=camera_id,
+                detected_at=now,
+                photo_path=photo_path,
+                confidence=confidence,
+            )
+            session_manager.record_detection(
+                db=db,
+                camera_id=camera_id,
+                plate=plate,
+                confidence=confidence,
+                direction=direction,
+                photo_path=photo_path,
+                detected_at=now,
+            )
+            if pair is not None and direction.value != "unknown":
+                session_manager.handle_direction_pair(db, direction, pair.first, pair.second)
+                logger.info(
+                    "Direction %s for plate %s (cam %s -> cam %s)",
+                    direction.value,
+                    plate,
+                    pair.first.camera_id,
+                    pair.second.camera_id,
+                )
 
         db.commit()
     except Exception:
@@ -72,7 +97,7 @@ def handle_detection(camera_id: int, plate: str, confidence: float, photo_path: 
         db.close()
 
 
-def process_camera(camera_id: int, source: str, roi: str | None, tracker: DirectionTracker):
+def process_camera(camera_id: int, source: str, roi: str | None, tracker: DirectionTracker, *, single_camera: bool):
     reader = RTSPReader(camera_id, source)
     motion = MotionDetector()
     voter = PlateVoter()
@@ -97,7 +122,6 @@ def process_camera(camera_id: int, source: str, roi: str | None, tracker: Direct
             voter.reset_episode()
         was_active = active
 
-        # Fast live preview path (no ANPR)
         live_frame = prepare_live_frame(raw)
         recent = voter.best_recent()
         live_preview.update_frame(
@@ -107,14 +131,12 @@ def process_camera(camera_id: int, source: str, roi: str | None, tracker: Direct
             recent.confidence if recent else None,
         )
 
-        # ANPR only when motion detected (saves ~70-90% CPU when idle)
         if not motion.should_run_anpr(raw):
             continue
 
         anpr_frame = prepare_anpr_frame(raw, roi)
         results = anpr_service.recognize(anpr_frame)
 
-        display = voter.best_recent()
         if results:
             display = max(results, key=lambda r: r.confidence)
             live_preview.update_frame(camera_id, live_frame, display.plate, display.confidence)
@@ -131,7 +153,14 @@ def process_camera(camera_id: int, source: str, roi: str | None, tracker: Direct
             confirmed.votes,
             camera_id,
         )
-        handle_detection(camera_id, confirmed.plate, confirmed.confidence, photo_path, tracker)
+        handle_detection(
+            camera_id,
+            confirmed.plate,
+            confirmed.confidence,
+            photo_path,
+            tracker,
+            single_camera=single_camera,
+        )
 
 
 def wait_for_camera_sources() -> list:
@@ -140,8 +169,7 @@ def wait_for_camera_sources() -> list:
         if sources:
             return sources
         logger.error(
-            "Камеры не настроены. Задайте CAMERA_1_RTSP/CAMERA_2_RTSP "
-            "или VIDEO_FILE_1/VIDEO_FILE_2 в .env и перезапустите worker."
+            "Камера не настроена. Задайте CAMERA_1_RTSP или VIDEO_FILE_1 в .env и перезапустите worker."
         )
         time.sleep(30)
 
@@ -151,24 +179,26 @@ def run_worker():
 
     tracker = DirectionTracker()
     sources = wait_for_camera_sources()
+    single_camera = settings.single_camera_mode()
 
     threads = []
     for src in sources:
         t = threading.Thread(
             target=process_camera,
             args=(src.camera_id, src.source, src.roi, tracker),
+            kwargs={"single_camera": single_camera},
             daemon=True,
         )
         t.start()
         threads.append(t)
 
+    mode = "single (въезд/выезд по сессии)" if single_camera else "dual (по двум камерам)"
     logger.info(
-        "Worker started: %d camera(s), live=%dms, anpr_max=%dpx, motion_gate=on, vote=%d/%d",
+        "Worker started: %d camera(s), mode=%s, live=%dms, anpr_max=%dpx",
         len(threads),
+        mode,
         settings.live_preview_interval_ms,
         settings.anpr_max_frame_width,
-        settings.plate_vote_required,
-        settings.plate_vote_window,
     )
 
     while True:

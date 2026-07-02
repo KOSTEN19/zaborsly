@@ -79,7 +79,12 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(get_current_user)
         .scalar()
         or 0
     )
-    cameras = db.query(Camera).order_by(Camera.position).all()
+    cameras = (
+        db.query(Camera)
+        .filter(Camera.is_active.is_(True))
+        .order_by(Camera.position)
+        .all()
+    )
 
     return DashboardStats(
         entries_today=entries_today,
@@ -92,7 +97,12 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(get_current_user)
 
 @router.get("/cameras", response_model=list[CameraOut])
 def list_cameras(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return db.query(Camera).order_by(Camera.position).all()
+    return (
+        db.query(Camera)
+        .filter(Camera.is_active.is_(True))
+        .order_by(Camera.position)
+        .all()
+    )
 
 
 @router.get("/detections", response_model=PaginatedDetections)
@@ -179,6 +189,7 @@ def list_sessions(
 @router.get("/settings", response_model=SettingsOut)
 def get_settings(_: User = Depends(get_current_user)):
     return SettingsOut(
+        single_camera_mode=settings.single_camera_mode(),
         camera_1_name=settings.camera_1_name,
         camera_2_name=settings.camera_2_name,
         camera_1_rtsp=settings.camera_1_rtsp or settings.video_file_1 or "(не задано)",

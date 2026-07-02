@@ -76,6 +76,7 @@ class DashboardStats(BaseModel):
 
 
 class SettingsOut(BaseModel):
+    single_camera_mode: bool
     camera_1_name: str
     camera_2_name: str
     camera_1_rtsp: str

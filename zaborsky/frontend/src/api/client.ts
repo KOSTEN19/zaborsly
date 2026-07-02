@@ -104,6 +104,7 @@ export interface DetectionItem {
 }
 
 export interface SettingsData {
+  single_camera_mode: boolean;
   camera_1_name: string;
   camera_2_name: string;
   camera_1_rtsp: string;

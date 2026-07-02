@@ -50,5 +50,11 @@ class Settings(BaseSettings):
 
     photo_dir: str = "/data/photos"
 
+    def camera_2_configured(self) -> bool:
+        return bool(self.camera_2_rtsp or self.video_file_2)
+
+    def single_camera_mode(self) -> bool:
+        return not self.camera_2_configured()
+
 
 settings = Settings()

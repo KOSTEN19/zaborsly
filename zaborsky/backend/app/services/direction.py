@@ -82,6 +82,13 @@ class DirectionTracker:
         del self._pending[plate]
         return direction, pair
 
+    def try_acquire(self, plate: str, camera_id: int, detected_at: datetime) -> bool:
+        """Cooldown gate for single-camera mode (no cross-camera pairing)."""
+        if self._is_on_cooldown(camera_id, plate, detected_at):
+            return False
+        self._set_cooldown(camera_id, plate, detected_at)
+        return True
+
     def _resolve_direction(self, first_cam: int, second_cam: int) -> Direction:
         if first_cam == 1 and second_cam == 2:
             return (

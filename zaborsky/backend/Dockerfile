@@ -2,6 +2,8 @@ FROM python:3.11-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    build-essential \
+    python3-dev \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
@@ -12,12 +14,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+ENV PYTHONUNBUFFERED=1 \
+    PHOTO_DIR=/data/photos \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=120
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-
-ENV PYTHONUNBUFFERED=1
-ENV PHOTO_DIR=/data/photos
 
 RUN mkdir -p /data/photos
