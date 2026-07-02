@@ -1,7 +1,7 @@
 from collections import deque
 from dataclasses import dataclass
 
-from app.config import settings
+from app.services.runtime_config import cfg
 from app.services.anpr import PlateResult
 
 
@@ -16,7 +16,7 @@ class PlateVoter:
     """Confirm plate across multiple frames — fewer false positives, higher accuracy."""
 
     def __init__(self):
-        self._history: deque[tuple[str, float]] = deque(maxlen=settings.plate_vote_window)
+        self._history: deque[tuple[str, float]] = deque(maxlen=cfg.plate_vote_window)
         self._last_emitted: str | None = None
 
     def add(self, results: list[PlateResult]) -> VotedPlate | None:
@@ -47,7 +47,7 @@ class PlateVoter:
         return PlateResult(plate=plate, confidence=conf)
 
     def _check_confirmed(self) -> VotedPlate | None:
-        if len(self._history) < settings.plate_vote_required:
+        if len(self._history) < cfg.plate_vote_required:
             return None
 
         counts: dict[str, list[float]] = {}
@@ -63,11 +63,11 @@ class PlateVoter:
                 best_plate = plate
                 best_confs = confs
 
-        if best_votes < settings.plate_vote_required:
+        if best_votes < cfg.plate_vote_required:
             return None
 
         avg_conf = sum(best_confs) / len(best_confs)
-        if avg_conf < settings.min_confirmed_confidence:
+        if avg_conf < cfg.min_confirmed_confidence:
             return None
 
         return VotedPlate(plate=best_plate, confidence=avg_conf, votes=best_votes)

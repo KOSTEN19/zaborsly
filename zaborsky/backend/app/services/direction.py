@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from app.config import settings
 from app.models import Direction
+from app.services.runtime_config import cfg
 
 
 @dataclass
@@ -28,7 +28,7 @@ class DirectionTracker:
     def _is_on_cooldown(self, camera_id: int, plate: str, now: datetime) -> bool:
         key = (camera_id, plate)
         last = self._cooldown.get(key)
-        if last and (now - last).total_seconds() < settings.detection_cooldown_sec:
+        if last and (now - last).total_seconds() < cfg.detection_cooldown_sec:
             return True
         return False
 
@@ -54,7 +54,7 @@ class DirectionTracker:
             )
             return Direction.unknown, None
 
-        window = timedelta(seconds=settings.movement_window_sec)
+        window = timedelta(seconds=cfg.movement_window_sec)
         if detected_at - pending.detected_at > window:
             self._pending[plate] = PendingDetection(
                 plate=plate,
@@ -93,13 +93,13 @@ class DirectionTracker:
         if first_cam == 1 and second_cam == 2:
             return (
                 Direction.entry
-                if settings.cam1_to_cam2_direction == "entry"
+                if cfg.cam1_to_cam2_direction == "entry"
                 else Direction.exit
             )
         if first_cam == 2 and second_cam == 1:
             return (
                 Direction.exit
-                if settings.cam1_to_cam2_direction == "entry"
+                if cfg.cam1_to_cam2_direction == "entry"
                 else Direction.entry
             )
         return Direction.unknown

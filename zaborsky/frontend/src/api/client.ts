@@ -54,6 +54,18 @@ export const api = {
   detections: (params: URLSearchParams) =>
     request<Paginated<DetectionItem>>(`/detections?${params}`),
   settings: () => request<SettingsData>("/settings"),
+  updateSettings: (data: Omit<SettingsData, "single_camera_mode">) =>
+    request<SettingsData>("/settings", { method: "PUT", body: JSON.stringify(data) }),
+  verifyPassword: (password: string) =>
+    request<{ valid: boolean }>("/auth/verify-password", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ ok: boolean; message: string }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
   cameras: () => request<CameraItem[]>("/cameras"),
   cameraLive: (cameraId: number) => request<CameraLiveStatus>(`/cameras/${cameraId}/live`),
 };
@@ -109,6 +121,8 @@ export interface SettingsData {
   camera_2_name: string;
   camera_1_rtsp: string;
   camera_2_rtsp: string;
+  camera_1_roi: string;
+  camera_2_roi: string;
   cam1_to_cam2_direction: string;
   movement_window_sec: number;
   detection_cooldown_sec: number;
@@ -116,10 +130,12 @@ export interface SettingsData {
   min_confirmed_confidence: number;
   live_preview_interval_ms: number;
   live_max_frame_width: number;
+  live_plate_ttl_sec: number;
   anpr_max_frame_width: number;
   anpr_min_interval_ms: number;
   enable_clahe: boolean;
   motion_min_area_ratio: number;
+  motion_tail_sec: number;
   plate_vote_required: number;
   plate_vote_window: number;
   torch_num_threads: number;

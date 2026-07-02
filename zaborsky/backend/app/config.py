@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     video_file_1: str = ""
     video_file_2: str = ""
 
+    # Dahua/Hikvision often need TCP; UDP fails silently in OpenCV/ffmpeg
+    rtsp_use_tcp: bool = True
+    rtsp_open_timeout_sec: int = 10
+
     cam1_to_cam2_direction: str = "entry"
     movement_window_sec: int = 30
     detection_cooldown_sec: int = 60

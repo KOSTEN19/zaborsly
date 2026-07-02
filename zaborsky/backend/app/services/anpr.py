@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from app.config import settings
+from app.services.runtime_config import cfg
 from app.services.plate_utils import is_valid_ru_plate, normalize_plate
 
 logger = logging.getLogger(__name__)
@@ -32,11 +32,11 @@ class ANPRService:
         from nomeroff_net import pipeline
         from nomeroff_net.tools import unzip
 
-        torch.set_num_threads(settings.torch_num_threads)
+        torch.set_num_threads(cfg.torch_num_threads)
         if hasattr(torch, "set_num_interop_threads"):
-            torch.set_num_interop_threads(max(1, settings.torch_num_threads // 2))
+            torch.set_num_interop_threads(max(1, cfg.torch_num_threads // 2))
 
-        logger.info("Loading nomeroff_net pipeline (torch threads=%s)...", settings.torch_num_threads)
+        logger.info("Loading nomeroff_net pipeline (torch threads=%s)...", cfg.torch_num_threads)
         self._pipeline = pipeline("number_plate_detection_and_reading", image_loader="opencv")
         self._unzip = unzip
         self._initialized = True
@@ -58,7 +58,7 @@ class ANPRService:
                 if not is_valid_ru_plate(plate):
                     continue
                 confidence = float(conf) if conf is not None else 0.5
-                if confidence < settings.min_confidence:
+                if confidence < cfg.min_confidence:
                     continue
                 results.append(PlateResult(plate=plate, confidence=confidence))
             return results

@@ -3,20 +3,25 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token, get_current_user, verify_password
+from app.auth import create_access_token, get_current_user, hash_password, verify_password
 from app.config import settings
 from app.database import get_db
 from app.models import Camera, Detection, SessionStatus, User, VehicleSession
 from app.schemas import (
     CameraOut,
+    ChangePasswordRequest,
     DashboardStats,
     DetectionOut,
     PaginatedDetections,
     PaginatedSessions,
     SettingsOut,
+    SettingsUpdate,
     TokenResponse,
     VehicleSessionOut,
+    VerifyPasswordRequest,
+    VerifyPasswordResponse,
 )
+from app.services.runtime_config import cfg, reload as reload_runtime, save as save_runtime, to_settings_out
 
 router = APIRouter()
 
@@ -186,26 +191,43 @@ def list_sessions(
     return PaginatedSessions(items=result, total=total, page=page, page_size=page_size)
 
 
+@router.post("/auth/verify-password", response_model=VerifyPasswordResponse)
+def verify_password_endpoint(
+    body: VerifyPasswordRequest,
+    user: User = Depends(get_current_user),
+):
+    return VerifyPasswordResponse(valid=verify_password(body.password, user.password_hash))
+
+
+@router.post("/auth/change-password")
+def change_password(
+    body: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Неверный текущий пароль")
+    user.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"ok": True, "message": "Пароль изменён"}
+
+
 @router.get("/settings", response_model=SettingsOut)
 def get_settings(_: User = Depends(get_current_user)):
-    return SettingsOut(
-        single_camera_mode=settings.single_camera_mode(),
-        camera_1_name=settings.camera_1_name,
-        camera_2_name=settings.camera_2_name,
-        camera_1_rtsp=settings.camera_1_rtsp or settings.video_file_1 or "(не задано)",
-        camera_2_rtsp=settings.camera_2_rtsp or settings.video_file_2 or "(не задано)",
-        cam1_to_cam2_direction=settings.cam1_to_cam2_direction,  # type: ignore[arg-type]
-        movement_window_sec=settings.movement_window_sec,
-        detection_cooldown_sec=settings.detection_cooldown_sec,
-        min_confidence=settings.min_confidence,
-        min_confirmed_confidence=settings.min_confirmed_confidence,
-        live_preview_interval_ms=settings.live_preview_interval_ms,
-        live_max_frame_width=settings.live_max_frame_width,
-        anpr_max_frame_width=settings.anpr_max_frame_width,
-        anpr_min_interval_ms=settings.anpr_min_interval_ms,
-        enable_clahe=settings.enable_clahe,
-        motion_min_area_ratio=settings.motion_min_area_ratio,
-        plate_vote_required=settings.plate_vote_required,
-        plate_vote_window=settings.plate_vote_window,
-        torch_num_threads=settings.torch_num_threads,
-    )
+    return SettingsOut(**to_settings_out())
+
+
+@router.put("/settings", response_model=SettingsOut)
+def update_settings(
+    body: SettingsUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    if body.plate_vote_required > body.plate_vote_window:
+        raise HTTPException(
+            status_code=400,
+            detail="plate_vote_required не может быть больше plate_vote_window",
+        )
+    save_runtime(db, body.model_dump())
+    db.commit()
+    return SettingsOut(**to_settings_out())

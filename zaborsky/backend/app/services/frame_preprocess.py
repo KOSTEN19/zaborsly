@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from app.config import settings
+from app.services.runtime_config import cfg
 
 
 def resize_frame(frame: np.ndarray, max_width: int) -> np.ndarray:
@@ -38,7 +38,7 @@ def apply_roi(frame: np.ndarray, roi: str | None) -> np.ndarray:
 
 def enhance_for_anpr(frame: np.ndarray) -> np.ndarray:
     """Improve contrast for OCR without heavy compute."""
-    if not settings.enable_clahe:
+    if not cfg.enable_clahe:
         return frame
 
     lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
@@ -51,9 +51,9 @@ def enhance_for_anpr(frame: np.ndarray) -> np.ndarray:
 
 def prepare_anpr_frame(frame: np.ndarray, roi: str | None = None) -> np.ndarray:
     cropped = apply_roi(frame, roi)
-    resized = resize_frame(cropped, settings.anpr_max_frame_width)
+    resized = resize_frame(cropped, cfg.anpr_max_frame_width)
     return enhance_for_anpr(resized)
 
 
 def prepare_live_frame(frame: np.ndarray) -> np.ndarray:
-    return resize_frame(frame, settings.live_max_frame_width)
+    return resize_frame(frame, cfg.live_max_frame_width)

@@ -3,7 +3,7 @@ import time
 import cv2
 import numpy as np
 
-from app.config import settings
+from app.services.runtime_config import cfg
 
 
 class MotionDetector:
@@ -15,7 +15,7 @@ class MotionDetector:
         self._last_anpr_at = 0.0
 
     def is_scene_active(self) -> bool:
-        return (time.time() - self._last_motion_at) <= settings.motion_tail_sec
+        return (time.time() - self._last_motion_at) <= cfg.motion_tail_sec
 
     def _to_small_gray(self, frame: np.ndarray) -> np.ndarray:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -32,7 +32,7 @@ class MotionDetector:
 
         _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
         motion_ratio = np.count_nonzero(thresh) / thresh.size
-        return motion_ratio >= settings.motion_min_area_ratio
+        return motion_ratio >= cfg.motion_min_area_ratio
 
     def should_run_anpr(self, frame: np.ndarray) -> bool:
         now = time.time()
@@ -41,11 +41,11 @@ class MotionDetector:
         if motion:
             self._last_motion_at = now
 
-        within_tail = (now - self._last_motion_at) <= settings.motion_tail_sec
+        within_tail = (now - self._last_motion_at) <= cfg.motion_tail_sec
         if not motion and not within_tail:
             return False
 
-        min_gap = settings.anpr_min_interval_ms / 1000.0
+        min_gap = cfg.anpr_min_interval_ms / 1000.0
         if now - self._last_anpr_at < min_gap:
             return False
 

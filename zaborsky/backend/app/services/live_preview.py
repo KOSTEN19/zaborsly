@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from app.config import settings
+from app.services.runtime_config import cfg
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -62,7 +63,7 @@ class LivePreviewService:
         last = self._last_plate.get(camera_id)
         if last:
             p, c, ts = last
-            if (now - ts).total_seconds() <= settings.live_plate_ttl_sec:
+            if (now - ts).total_seconds() <= cfg.live_plate_ttl_sec:
                 display_plate = p
                 display_conf = c
                 display_at = ts.isoformat()

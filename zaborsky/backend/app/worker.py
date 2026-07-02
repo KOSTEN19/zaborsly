@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 
-from app.config import settings
+from app.services.runtime_config import cfg, reload as reload_runtime
 from app.database import SessionLocal
 from app.models import Camera
 from app.services.anpr import anpr_service
@@ -12,7 +12,7 @@ from app.services.live_preview import live_preview
 from app.services.motion_detector import MotionDetector
 from app.services.plate_voter import PlateVoter
 from app.services.plate_utils import utcnow
-from app.services.rtsp_reader import RTSPReader, get_camera_sources, save_frame
+from app.services.rtsp_reader import RTSPReader, get_camera_sources, mask_rtsp_url, save_frame
 from app.services.session_manager import session_manager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -103,7 +103,7 @@ def process_camera(camera_id: int, source: str, roi: str | None, tracker: Direct
     voter = PlateVoter()
     was_active = False
 
-    logger.info("Started processing camera %s: %s", camera_id, source)
+    logger.info("Started processing camera %s: %s", camera_id, mask_rtsp_url(source))
 
     while True:
         raw = reader.read_raw()
@@ -165,21 +165,30 @@ def process_camera(camera_id: int, source: str, roi: str | None, tracker: Direct
 
 def wait_for_camera_sources() -> list:
     while True:
+        reload_runtime()
         sources = get_camera_sources()
         if sources:
+            for src in sources:
+                logger.info(
+                    "Camera source id=%s: %s",
+                    src.camera_id,
+                    mask_rtsp_url(src.source),
+                )
             return sources
         logger.error(
-            "Камера не настроена. Задайте CAMERA_1_RTSP или VIDEO_FILE_1 в .env и перезапустите worker."
+            "Камера не настроена. Задайте CAMERA_1_RTSP в .env или в админке → Настройки, "
+            "затем: docker compose restart worker"
         )
         time.sleep(30)
 
 
 def run_worker():
+    reload_runtime()
     anpr_service.initialize()
 
     tracker = DirectionTracker()
     sources = wait_for_camera_sources()
-    single_camera = settings.single_camera_mode()
+    single_camera = cfg.single_camera_mode()
 
     threads = []
     for src in sources:
@@ -197,12 +206,13 @@ def run_worker():
         "Worker started: %d camera(s), mode=%s, live=%dms, anpr_max=%dpx",
         len(threads),
         mode,
-        settings.live_preview_interval_ms,
-        settings.anpr_max_frame_width,
+        cfg.live_preview_interval_ms,
+        cfg.anpr_max_frame_width,
     )
 
     while True:
-        time.sleep(60)
+        reload_runtime()
+        time.sleep(30)
 
 
 if __name__ == "__main__":

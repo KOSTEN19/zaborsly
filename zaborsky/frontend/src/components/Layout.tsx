@@ -1,5 +1,7 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { clearToken } from "../api/client";
+import { getTheme, toggleTheme } from "../theme";
 
 const links = [
   { to: "/", label: "Дашборд" },
@@ -11,10 +13,15 @@ const links = [
 
 export default function Layout() {
   const navigate = useNavigate();
+  const [theme, setTheme] = useState(getTheme());
 
   const logout = () => {
     clearToken();
     navigate("/login");
+  };
+
+  const onToggleTheme = () => {
+    setTheme(toggleTheme());
   };
 
   return (
@@ -38,6 +45,13 @@ export default function Layout() {
               {l.label}
             </NavLink>
           ))}
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={onToggleTheme}
+            title={theme === "light" ? "Тёмная тема" : "Светлая тема"}
+          >
+            {theme === "light" ? "🌙" : "☀️"}
+          </button>
           <button className="btn btn-outline btn-sm" onClick={logout}>
             Выйти
           </button>

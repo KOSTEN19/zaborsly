@@ -81,6 +81,8 @@ class SettingsOut(BaseModel):
     camera_2_name: str
     camera_1_rtsp: str
     camera_2_rtsp: str
+    camera_1_roi: str = ""
+    camera_2_roi: str = ""
     cam1_to_cam2_direction: Literal["entry", "exit"]
     movement_window_sec: int
     detection_cooldown_sec: int
@@ -88,13 +90,53 @@ class SettingsOut(BaseModel):
     min_confirmed_confidence: float
     live_preview_interval_ms: int
     live_max_frame_width: int
+    live_plate_ttl_sec: int = 10
     anpr_max_frame_width: int
     anpr_min_interval_ms: int
     enable_clahe: bool
     motion_min_area_ratio: float
+    motion_tail_sec: float = 2.5
     plate_vote_required: int
     plate_vote_window: int
     torch_num_threads: int
+
+
+class SettingsUpdate(BaseModel):
+    camera_1_name: str
+    camera_2_name: str = ""
+    camera_1_rtsp: str = ""
+    camera_2_rtsp: str = ""
+    camera_1_roi: str = ""
+    camera_2_roi: str = ""
+    cam1_to_cam2_direction: Literal["entry", "exit"] = "entry"
+    movement_window_sec: int = Field(ge=5, le=300)
+    detection_cooldown_sec: int = Field(ge=5, le=600)
+    min_confidence: float = Field(ge=0.1, le=1.0)
+    min_confirmed_confidence: float = Field(ge=0.1, le=1.0)
+    live_preview_interval_ms: int = Field(ge=100, le=5000)
+    live_max_frame_width: int = Field(ge=320, le=1920)
+    live_plate_ttl_sec: int = Field(ge=1, le=120)
+    anpr_max_frame_width: int = Field(ge=640, le=3840)
+    anpr_min_interval_ms: int = Field(ge=100, le=10000)
+    enable_clahe: bool = True
+    motion_min_area_ratio: float = Field(ge=0.0001, le=0.1)
+    motion_tail_sec: float = Field(ge=0.5, le=30.0)
+    plate_vote_required: int = Field(ge=1, le=10)
+    plate_vote_window: int = Field(ge=2, le=20)
+    torch_num_threads: int = Field(ge=1, le=8)
+
+
+class VerifyPasswordRequest(BaseModel):
+    password: str
+
+
+class VerifyPasswordResponse(BaseModel):
+    valid: bool
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6)
 
 
 class CameraLiveStatus(BaseModel):
