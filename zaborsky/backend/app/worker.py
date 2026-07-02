@@ -12,11 +12,19 @@ from app.services.live_preview import live_preview
 from app.services.motion_detector import MotionDetector
 from app.services.plate_voter import PlateVoter
 from app.services.plate_utils import utcnow
-from app.services.rtsp_reader import RTSPReader, get_camera_sources, mask_rtsp_url, save_frame
+from app.services.rtsp_reader import (
+    RTSPReader,
+    get_camera_source,
+    get_camera_sources,
+    mask_stream_url,
+    save_frame,
+)
 from app.services.session_manager import session_manager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("worker")
+
+CONFIG_POLL_SEC = 10
 
 
 def update_camera_status(camera_id: int, online: bool):
@@ -97,15 +105,42 @@ def handle_detection(
         db.close()
 
 
-def process_camera(camera_id: int, source: str, roi: str | None, tracker: DirectionTracker, *, single_camera: bool):
+def process_camera(camera_id: int, source: str, roi: str | None, tracker: DirectionTracker):
     reader = RTSPReader(camera_id, source)
     motion = MotionDetector()
     voter = PlateVoter()
     was_active = False
+    last_cfg_check = 0.0
 
-    logger.info("Started processing camera %s: %s", camera_id, mask_rtsp_url(source))
+    logger.info("Started processing camera %s: %s", camera_id, mask_stream_url(source))
 
     while True:
+        current = get_camera_source(camera_id)
+        if current is None:
+            logger.warning("Camera %s removed from config, stopping thread", camera_id)
+            reader.close()
+            update_camera_status(camera_id, False)
+            live_preview.set_offline(camera_id)
+            return
+
+        if time.time() - last_cfg_check >= CONFIG_POLL_SEC:
+            reload_runtime()
+            last_cfg_check = time.time()
+            updated = get_camera_source(camera_id)
+            if updated and (updated.source != source or (updated.roi or "") != (roi or "")):
+                logger.info(
+                    "Camera %s: source changed, reconnecting (%s)",
+                    camera_id,
+                    mask_stream_url(updated.source),
+                )
+                reader.close()
+                source = updated.source
+                roi = updated.roi
+                reader = RTSPReader(camera_id, source)
+                motion = MotionDetector()
+                voter = PlateVoter()
+                was_active = False
+
         raw = reader.read_raw()
         if raw is None:
             if not reader.is_online:
@@ -159,7 +194,7 @@ def process_camera(camera_id: int, source: str, roi: str | None, tracker: Direct
             confirmed.confidence,
             photo_path,
             tracker,
-            single_camera=single_camera,
+            single_camera=cfg.single_camera_mode(),
         )
 
 
@@ -169,14 +204,16 @@ def wait_for_camera_sources() -> list:
         sources = get_camera_sources()
         if sources:
             for src in sources:
+                kind = "HTTP" if src.source.startswith("http") else "RTSP/file"
                 logger.info(
-                    "Camera source id=%s: %s",
+                    "Camera source id=%s (%s): %s",
                     src.camera_id,
-                    mask_rtsp_url(src.source),
+                    kind,
+                    mask_stream_url(src.source),
                 )
             return sources
         logger.error(
-            "Камера не настроена. Задайте CAMERA_1_RTSP в .env или в админке → Настройки, "
+            "Камера не настроена. Задайте CAMERA_1_HTTP, CAMERA_1_RTSP или VIDEO_FILE_1, "
             "затем: docker compose restart worker"
         )
         time.sleep(30)
@@ -188,20 +225,18 @@ def run_worker():
 
     tracker = DirectionTracker()
     sources = wait_for_camera_sources()
-    single_camera = cfg.single_camera_mode()
 
     threads = []
     for src in sources:
         t = threading.Thread(
             target=process_camera,
             args=(src.camera_id, src.source, src.roi, tracker),
-            kwargs={"single_camera": single_camera},
             daemon=True,
         )
         t.start()
         threads.append(t)
 
-    mode = "single (въезд/выезд по сессии)" if single_camera else "dual (по двум камерам)"
+    mode = "single (въезд/выезд по сессии)" if cfg.single_camera_mode() else "dual (по двум камерам)"
     logger.info(
         "Worker started: %d camera(s), mode=%s, live=%dms, anpr_max=%dpx",
         len(threads),

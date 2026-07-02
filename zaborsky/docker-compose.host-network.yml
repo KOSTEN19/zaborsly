@@ -1,0 +1,22 @@
+# Доступ worker к RTSP-камере в локальной сети (Ubuntu).
+#
+# Worker подключается К камере на порт 554 (исходящее соединение).
+# Проброс "554:554" в ports НЕ нужен — он только для входящих подключений.
+#
+# Этот файл включает network_mode: host у worker, чтобы контейнер
+# видел камеру так же, как хост (172.16.x.x и т.д.).
+#
+# Запуск:
+#   docker compose -f docker-compose.yml -f docker-compose.host-network.yml up -d --build
+# или задайте в .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.host-network.yml
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  worker:
+    network_mode: host
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB}

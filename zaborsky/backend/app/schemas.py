@@ -81,6 +81,8 @@ class SettingsOut(BaseModel):
     camera_2_name: str
     camera_1_rtsp: str
     camera_2_rtsp: str
+    camera_1_http: str = ""
+    camera_2_http: str = ""
     camera_1_roi: str = ""
     camera_2_roi: str = ""
     cam1_to_cam2_direction: Literal["entry", "exit"]
@@ -106,6 +108,8 @@ class SettingsUpdate(BaseModel):
     camera_2_name: str = ""
     camera_1_rtsp: str = ""
     camera_2_rtsp: str = ""
+    camera_1_http: str = ""
+    camera_2_http: str = ""
     camera_1_roi: str = ""
     camera_2_roi: str = ""
     cam1_to_cam2_direction: Literal["entry", "exit"] = "entry"

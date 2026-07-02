@@ -48,6 +48,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
     volumes:
       - photo_data:/data/photos
+    # RTSP: worker сам подключается к камере на :554 (исходящий трафик).
+    # Для камер в LAN на Ubuntu добавьте docker-compose.host-network.yml (см. .env COMPOSE_FILE).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       api:
         condition: service_healthy

@@ -23,7 +23,13 @@ export default function Settings() {
     api.settings().then((data) => {
       setSingleCamera(data.single_camera_mode);
       const { single_camera_mode: _, ...rest } = data;
-      setForm(rest);
+      setForm({
+        ...rest,
+        camera_1_http: rest.camera_1_http ?? "",
+        camera_2_http: rest.camera_2_http ?? "",
+        camera_1_rtsp: rest.camera_1_rtsp ?? "",
+        camera_2_rtsp: rest.camera_2_rtsp ?? "",
+      });
     });
   }, []);
 
@@ -43,8 +49,8 @@ export default function Settings() {
       const { single_camera_mode: _, ...rest } = updated;
       setForm(rest);
       setMessage(
-        "Настройки сохранены. ANPR-параметры worker подхватит за ~30 сек. " +
-          "При смене RTSP выполните: docker compose restart worker"
+        "Настройки сохранены. Worker подхватит URL камеры (HTTP/RTSP) за ~10 сек. " +
+          "При смене .env выполните: docker compose restart worker"
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка сохранения");
@@ -169,7 +175,7 @@ export default function Settings() {
         <div className="card-body gap-4">
           <h2 className="card-title text-lg">Камера</h2>
           <p className="text-sm text-base-content/60">
-            Режим: {singleCamera ? "1 камера" : "2 камеры"}. Вторая камера включается, если заполнен RTSP камеры 2.
+            Режим: {singleCamera ? "1 камера" : "2 камеры"}. HTTP имеет приоритет над RTSP.
           </p>
 
           <label className="form-control">
@@ -179,6 +185,15 @@ export default function Settings() {
               value={form.camera_1_name}
               onChange={(e) => set("camera_1_name", e.target.value)}
               required
+            />
+          </label>
+          <label className="form-control">
+            <span className="label-text">HTTP URL (MJPEG / snapshot)</span>
+            <input
+              className="input input-bordered input-sm font-mono text-xs"
+              value={form.camera_1_http}
+              onChange={(e) => set("camera_1_http", e.target.value)}
+              placeholder="http://user:pass@192.168.1.101/cgi-bin/mjpg/video.cgi?channel=1&subtype=1"
             />
           </label>
           <label className="form-control">
@@ -207,6 +222,14 @@ export default function Settings() {
               className="input input-bordered input-sm"
               value={form.camera_2_name}
               onChange={(e) => set("camera_2_name", e.target.value)}
+            />
+          </label>
+          <label className="form-control">
+            <span className="label-text">HTTP URL (MJPEG / snapshot)</span>
+            <input
+              className="input input-bordered input-sm font-mono text-xs"
+              value={form.camera_2_http}
+              onChange={(e) => set("camera_2_http", e.target.value)}
             />
           </label>
           <label className="form-control">

@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     camera_1_rtsp: str = ""
     camera_2_rtsp: str = ""
+    camera_1_http: str = ""
+    camera_2_http: str = ""
     camera_1_name: str = "Камера 1"
     camera_2_name: str = "Камера 2"
     camera_1_roi: str = ""
@@ -55,7 +57,7 @@ class Settings(BaseSettings):
     photo_dir: str = "/data/photos"
 
     def camera_2_configured(self) -> bool:
-        return bool(self.camera_2_rtsp or self.video_file_2)
+        return bool(self.camera_2_http or self.camera_2_rtsp or self.video_file_2)
 
     def single_camera_mode(self) -> bool:
         return not self.camera_2_configured()

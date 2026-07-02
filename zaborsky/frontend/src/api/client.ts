@@ -121,6 +121,8 @@ export interface SettingsData {
   camera_2_name: string;
   camera_1_rtsp: string;
   camera_2_rtsp: string;
+  camera_1_http: string;
+  camera_2_http: string;
   camera_1_roi: string;
   camera_2_roi: string;
   cam1_to_cam2_direction: string;

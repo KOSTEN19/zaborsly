@@ -9,10 +9,16 @@ from app.models import AppConfig, Camera
 
 logger = logging.getLogger(__name__)
 
+
+def _active_camera_url(data: dict, n: int) -> str:
+    return (data.get(f"camera_{n}_http") or data.get(f"camera_{n}_rtsp") or "").strip()
+
 ENV_FALLBACK_KEYS = frozenset(
     {
         "camera_1_rtsp",
         "camera_2_rtsp",
+        "camera_1_http",
+        "camera_2_http",
         "camera_1_name",
         "camera_2_name",
     }
@@ -21,6 +27,8 @@ ENV_FALLBACK_KEYS = frozenset(
 EDITABLE_KEYS = (
     "camera_1_rtsp",
     "camera_2_rtsp",
+    "camera_1_http",
+    "camera_2_http",
     "camera_1_name",
     "camera_2_name",
     "camera_1_roi",
@@ -84,14 +92,15 @@ def get_dict() -> dict:
 
 def single_camera_mode(data: dict | None = None) -> bool:
     d = data or get_dict()
-    return not bool(d.get("camera_2_rtsp"))
+    cam2 = d.get("camera_2_http") or d.get("camera_2_rtsp") or env.video_file_2
+    return not bool(cam2)
 
 
 def to_settings_out() -> dict:
     d = get_dict()
     return {
         "single_camera_mode": single_camera_mode(d),
-        **{k: d[k] for k in EDITABLE_KEYS if k in d},
+        **{k: d.get(k, getattr(env, k, "")) for k in EDITABLE_KEYS},
         "camera_1_rtsp": d.get("camera_1_rtsp") or env.video_file_1 or "",
         "camera_2_rtsp": d.get("camera_2_rtsp") or env.video_file_2 or "",
     }
@@ -126,7 +135,7 @@ def _sync_cameras(db: Session, data: dict):
         cam1 = Camera(name=data["camera_1_name"], position=1)
         db.add(cam1)
     cam1.name = data["camera_1_name"]
-    cam1.rtsp_url = data.get("camera_1_rtsp") or ""
+    cam1.rtsp_url = _active_camera_url(data, 1)
     cam1.is_active = True
 
     cam2 = db.query(Camera).filter(Camera.position == 2).first()
@@ -139,7 +148,7 @@ def _sync_cameras(db: Session, data: dict):
             cam2 = Camera(name=data["camera_2_name"], position=2)
             db.add(cam2)
         cam2.name = data["camera_2_name"]
-        cam2.rtsp_url = data.get("camera_2_rtsp") or ""
+        cam2.rtsp_url = _active_camera_url(data, 2)
         cam2.is_active = True
 
 

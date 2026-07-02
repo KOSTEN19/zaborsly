@@ -25,11 +25,13 @@ def seed():
         ensure_row(db)
         reload(db)
         data = get_dict()
+        cam1_url = data.get("camera_1_http") or data.get("camera_1_rtsp") or settings.video_file_1
         cameras = [
-            (1, data["camera_1_name"], data.get("camera_1_rtsp") or settings.video_file_1, True),
+            (1, data["camera_1_name"], cam1_url, True),
         ]
-        if data.get("camera_2_rtsp"):
-            cameras.append((2, data["camera_2_name"], data["camera_2_rtsp"], True))
+        cam2_url = data.get("camera_2_http") or data.get("camera_2_rtsp")
+        if cam2_url:
+            cameras.append((2, data["camera_2_name"], cam2_url, True))
 
         for position, name, rtsp, active in cameras:
             cam = db.query(Camera).filter(Camera.position == position).first()
@@ -42,7 +44,7 @@ def seed():
                 cam.rtsp_url = rtsp or ""
                 cam.is_active = active
 
-        if not data.get("camera_2_rtsp"):
+        if not cam2_url:
             cam2 = db.query(Camera).filter(Camera.position == 2).first()
             if cam2:
                 cam2.is_active = False
